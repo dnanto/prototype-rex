@@ -1,0 +1,69 @@
+---
+title: "rex"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+read_outfmt7 <- function(path)
+{
+	lines <- read_lines(path)
+	fields <-
+		str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3) %>%
+		last() %>% 
+		str_split(", ", simplify = T)
+	read_tsv(lines, comment = "#", col_names = fields)
+}
+```
+
+```{r}
+accs1 <- read_outfmt7("data/flank1.tsv") %>% distinct(`subject acc.ver`)
+accs2 <- read_outfmt7("data/flank2.tsv") %>% distinct(`subject acc.ver`)
+```
+
+```{r}
+uid <- merge(accs1, accs2) %>% pull(`subject acc.ver`)
+```
+
+```{r}
+obj <- reutils::epost(uid, db = "nucleotide")
+reutils::efetch(obj, rettype = "fasta", retmode = "text", outfile = "sub.fas")
+```
+
+```{bash}
+glsearch36 -T 4 -m 8C data/flank1.fas lib.fas > hits-1.tsv
+glsearch36 -T 4 -m 8C data/flank2.fas lib.fas > hits-2.tsv
+```
+
+```{r}
+hits1 <- read_outfmt7("hits-1.tsv") %>% group_by(`subject id`) %>% top_n(1, `% identity`) %>% ungroup() %>% select(`subject id`, `s. start`, `s. end`)
+hits2 <- read_outfmt7("hits-2.tsv") %>% group_by(`subject id`) %>% top_n(1, `% identity`) %>% ungroup() %>% select(`subject id`, `s. start`, `s. end`)
+```
+
+```{r}
+merge(hits1, hits2, by = "subject id") %>% 
+	mutate(
+		start = pmin(`s. start.x`, `s. end.x`, `s. start.y`, `s. end.y`),
+		end = pmax(`s. start.x`, `s. end.x`, `s. start.y`, `s. end.y`)
+	) %>%
+	mutate(
+		region = paste(`subject id`, ":", start, "-", end, sep = "")
+	) %>%
+	select(region) %>%
+	write_tsv("rex.tsv", col_names = F)
+```
+
+```{bash}
+samtools faidx lib.fas --region-file rex.tsv | sed "s/:.*//g" > rex.fas
+```
+
+```{bash}
+mafft --auto --adjustdirection --thread -1 rex.fas > msa.fas 2> msa.log
+```
+
+
+
