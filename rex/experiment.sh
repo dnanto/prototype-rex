@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 ./intersection.py ../data/blast.1.tsv ../data/blast.2.tsv | ./eutil.py efetch - -params > library.fna
 
 glsearch36 -T 4 -m 8C ../data/query.1.fna library.fna > glsearch.1.tsv
