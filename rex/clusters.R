@@ -36,7 +36,7 @@ width <- nchar(as.character(k))
 batches <- split(rec, res$Best.partition)
 for (k in names(batches))
 {
-	path <- sprintf("k.%0*d.fna", width, as.integer(k))
-	cat(path, fill = T)
+	path <- sprintf("k-%0*d.fna", width, as.integer(k))
 	ape::write.FASTA(batches[[k]], path)
+	cat(path, fill = T)
 }
