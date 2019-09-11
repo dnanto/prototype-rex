@@ -3,9 +3,7 @@
 library(tidyverse)
 
 args <- commandArgs(trailingOnly = T)
-
-path.ani <- args[1]
-path.fna <- args[2]
+path <- args[1]
 
 read_dist <- function(path, sep = "\t")
 {
@@ -20,18 +18,19 @@ read_dist <- function(path, sep = "\t")
 		set_names(names)
 }
 
-coor <- read_dist(path.ani) %>% as.dist() %>% cmdscale()
+rec <- ape::read.FASTA(path)
+coor <- ape::dist.dna(rec, model = "raw", pairwise.deletion = F) %>% cmdscale() %>% scale()
 devnull <- capture.output(res <- NbClust::NbClust(coor, method = "kmeans"))
 k <- max(res$Best.partition)
 
-# as.data.frame(coor) %>%
-# 	mutate(class = as.factor(res$Best.partition)) %>%
-# 	ggplot(aes(V1, V2)) +
-# 	geom_point(aes(color = class), alpha = 0.5) +
-# 	theme_minimal() +
-# 	theme(legend.position = "bottom")
+as.data.frame(coor) %>%
+	setNames(c("dim.1", "dim.2")) %>%
+	mutate(class = as.factor(res$Best.partition)) %>%
+	ggplot(aes(dim.1, dim.2)) +
+	geom_point(aes(color = class), alpha = 0.5) +
+	theme_minimal() +
+	theme(legend.position = "bottom")
 
-rec <- ape::read.FASTA(path.fna)
 width <- nchar(as.character(k))
 batches <- split(rec, res$Best.partition)
 for (k in names(batches))
