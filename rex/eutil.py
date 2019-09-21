@@ -41,7 +41,7 @@ def main(argv):
 	Entrez.email = args.email
 
 	eutil = getattr(Entrez, args.eutil)
-	params = dict(item.split("=") for item in args.params.split())
+	params = dict(item.split("=") for item in args.params.split()) if args.params else {}
 
 	with args.id as file:
 		for batch in batchify(map(str.strip, file), size=args.post_size):
