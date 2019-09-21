@@ -1,69 +1,182 @@
 ---
 title: "rex"
+author: "dnanto"
+date: "9/14/2019"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 library(tidyverse)
-knitr::opts_chunk$set(echo = TRUE)
+library(magrittr)
+knitr::opts_chunk$set(echo = F, fig.width = 10)
 ```
 
 ```{r}
-read_outfmt7 <- function(path)
+parse_outfmt7 <- function(lines)
 {
-	lines <- read_lines(path)
 	fields <-
-		str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3) %>%
-		last() %>% 
+		str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3)[3] %>%
 		str_split(", ", simplify = T)
 	read_tsv(lines, comment = "#", col_names = fields)
+}
+
+read_outfmt7 <- function(path)
+{
+	lines <- read_lines(path) %>% head(-1)
+	enc <- startsWith(lines, "#") %>% rle()
+	enc$values <- ceiling(seq_along(enc$values) / 2)
+	split(lines, inverse.rle(enc)) %>% 
+		lapply(parse_outfmt7)
+}
+
+contextify <- function(df)
+{
+	mutate(
+		df, 
+		start = ifelse(`s. start` > `s. end`, `s. end`, `s. start`) - `query length`, 
+		end = ifelse(`s. start` > `s. end`, `s. start`, `s. end`) + `query length`
+	) %>%
+		mutate(
+			start = ifelse(start < 0, 1, start), 
+			end = ifelse(end > `subject length`, `subject length`, end)
+		)
+}
+
+blast <- function(qry, db, out, np = 1)
+{
+	cmd <- paste("blastn", "-task", "megablast", "-query", qry, "-db", db, "-outfmt", "'7 std qcovhsp qlen slen sstrand btop'", "-out", out, "-num_threads", np)
+	system(cmd)
+}
+
+decode_btop <- function(btop)
+{
+	str_split(btop, "", simplify = T)
+}
+
+blastdbcmd <- function(batch, db, out)
+{
+	cmd <- paste("blastdbcmd", "-db", db, "-entry_batch", "-", "-out", out)
+	system(cmd, input = batch)
+}
+
+glsearch <- function(qry, db, out, np = 1)
+{
+	cmd <- paste("glsearch36", "-T", np, "-m", "8C", qry, db, ">", out)
+	system(cmd)
 }
 ```
 
 ```{r}
-accs1 <- read_outfmt7("data/flank1.tsv") %>% distinct(`subject acc.ver`)
-accs2 <- read_outfmt7("data/flank2.tsv") %>% distinct(`subject acc.ver`)
+decode_btop <- function(btop)
+{
+	matches <- as.integer(str_extract_all(btop, "\\d+", simplify = T))
+	matches <- if (str_starts(btop, "\\d", negate = T)) c(0, matches) else matches
+	pos <- qpos <- spos <- 0
+	n <- 0; m <- 0; muts <- list();
+	for (ele in Filter(nchar, str_split(btop, "\\d+", simplify = T)))
+	{
+		val <- matches[n<-n+1]
+		pos <- pos + val
+		qpos <- qpos + val
+		spos <- spos + val
+		for (i in seq(1, nchar(ele), 2)) 
+		{	
+			tok <- substr(ele, i, i + 1)
+			qpos <- qpos + str_starts(tok, "-", negate = T)
+			spos <- spos + str_ends(tok, "-", negate = T)
+			muts[[m<-m+1]] <- list(pos = pos<-pos+1, qpos = qpos, spos = spos, mut = tok)
+		}
+	}
+	muts
+}
+
+call_mut <- function(mut)
+{
+	case_when(
+		mut == "AC" ~ "trv", mut == "CA" ~ "trv",
+		mut == "AG" ~ "trs", mut == "GA" ~ "trs",
+		mut == "AT" ~ "trv", mut == "TA" ~ "trv",
+		mut == "CG" ~ "trv", mut == "GC" ~ "trv",
+		mut == "CT" ~ "trs", mut == "TC" ~ "trs",
+		mut == "GT" ~ "trv", mut == "TG" ~ "trv",
+		endsWith(mut, "-") ~ "ins", startsWith(mut, "-") ~ "del"
+	)
+}
 ```
 
 ```{r}
-uid <- merge(accs1, accs2) %>% pull(`subject acc.ver`)
+np <- parallel::detectCores()
+path.qry <- "data/query.fna"
+path.bdb <- "data/ops"
+path.hits.1 <- "data/blast.tsv"
+path.hits.2 <- "data/glsearch.tsv"
+path.lib <- "data/library.fna"
+path.ext <- "data/extract.fna"
 ```
 
 ```{r}
-obj <- reutils::epost(uid, db = "nucleotide")
-reutils::efetch(obj, rettype = "fasta", retmode = "text", outfile = "sub.fas")
+blast(path.qry, path.bdb, path.hits.1, np)
+df <- read_outfmt7(path.hits.1) %>% bind_rows() 
+snp <-
+	apply(df, 1, function(row) {
+		val <- decode_btop(row["BTOP"])
+		if (!is_empty(val))
+			bind_rows(val) %>% 
+			mutate(
+				`q. start` = qpos + as.integer(row["q. start"]) - 1, 
+				`query acc.ver` = row["query acc.ver"], 
+				`subject acc.ver` = row["subject acc.ver"]
+			)
+	}) %>% 
+	bind_rows() %>%
+	mutate(call = call_mut(mut))
 ```
 
-```{bash}
-glsearch36 -T 4 -m 8C data/flank1.fas lib.fas > hits-1.tsv
-glsearch36 -T 4 -m 8C data/flank2.fas lib.fas > hits-2.tsv
+```{r, fig.height=14, fig.width=10}
+mutate(df, qcovhspid = `% identity` * `% query coverage per hsp` / 10000) %>%
+	ggplot(aes(x = `q. start`, y = `subject acc.ver`)) +
+	geom_segment(aes(xend = `q. end`, yend = `subject acc.ver`, alpha = qcovhspid), size = 2) +
+	geom_point(data = snp, aes(color = call, shape = call), size = 4) +
+	scale_color_manual(values = c(trv = "magenta", trs = "cyan", ins = "black", del = "black")) +
+	scale_shape_manual(values = c(trv = 124, trs = 124, ins = 6, del = 2)) +
+	facet_wrap(~ `query acc.ver`, nrow = 1, scales = "free_x") +
+	theme_minimal() +
+	theme(
+		legend.position = "bottom",
+		text = element_text(family = "mono"),
+		axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+	)
 ```
 
 ```{r}
-hits1 <- read_outfmt7("hits-1.tsv") %>% group_by(`subject id`) %>% top_n(1, `% identity`) %>% ungroup() %>% select(`subject id`, `s. start`, `s. end`)
-hits2 <- read_outfmt7("hits-2.tsv") %>% group_by(`subject id`) %>% top_n(1, `% identity`) %>% ungroup() %>% select(`subject id`, `s. start`, `s. end`)
-```
-
-```{r}
-merge(hits1, hits2, by = "subject id") %>% 
+read_outfmt7(path.hits.1) %>%
+	lapply(distinct, `subject acc.ver`, .keep_all = T) %>%
+	lapply(contextify) %>%
+	Reduce(function(...) merge(..., by = "subject acc.ver"), .) %>%
 	mutate(
-		start = pmin(`s. start.x`, `s. end.x`, `s. start.y`, `s. end.y`),
-		end = pmax(`s. start.x`, `s. end.x`, `s. start.y`, `s. end.y`)
+		start = apply(.[names(.)[grep("^start", names(.))]], 1, min),
+		end = apply(.[names(.)[grep("^end", names(.))]], 1, max)
 	) %>%
+	with(paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
+	blastdbcmd(path.bdb, path.lib)
+```
+
+```{r}
+glsearch(path.qry, path.lib, path.hits.2, np)
+```
+
+```{r}
+read_outfmt7(path.hits.2) %>%
+	lapply(select, `subject id`, `s. start`, `s. end`) %>%
+	lapply(distinct, `subject id`, .keep_all = T) %>%
+	Reduce(function(...) merge(..., by = "subject id"), .) %>%
 	mutate(
-		region = paste(`subject id`, ":", start, "-", end, sep = "")
+		start = apply(.[names(.)[grep("^s. start", names(.))]], 1, min),
+		end = apply(.[names(.)[grep("^s. end", names(.))]], 1, max)
 	) %>%
-	select(region) %>%
-	write_tsv("rex.tsv", col_names = F)
+	separate(`subject id`, c("subject acc.ver", "start.1", "end.1"), sep = "[-: ]", convert = T) %>%
+	mutate(offset = start.1 - start) %>%
+	mutate(start = start + offset, end = end + offset) %>%
+	with(paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
+	blastdbcmd(path.bdb, path.ext)
 ```
-
-```{bash}
-samtools faidx lib.fas --region-file rex.tsv | sed "s/:.*//g" > rex.fas
-```
-
-```{bash}
-mafft --auto --adjustdirection --thread -1 rex.fas > msa.fas 2> msa.log
-```
-
-
-
