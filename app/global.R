@@ -3,7 +3,7 @@ library(shinyFiles)
 library(shinycssloaders)
 library(tidyverse)
 
-roots <- c(home = "..")
+roots <- c(home = "../data")
 
 datatable <- function(df)
 {
@@ -24,6 +24,13 @@ read_header <- function(path)
 		str_split_fixed(" ", 2) %>%
 		as.data.frame() %>%
 		set_names(c("id", "definition"))
+}
+
+list_blastdb <- function(path)
+{
+	system(paste("blastdbcmd", "-list", path, "-list_outfmt", "'%f    %p    %t    %d    %l    %n    %U'"), intern = T) %>%
+		enframe(name = NULL) %>%
+		separate(value, c("path", "type", "title", "update", "bases", "sequences", "bytes"), "    ", convert = T)
 }
 
 read_dist <- function(path)
@@ -50,3 +57,6 @@ mash <- function(path, k = 21)
 	cmd <- paste("mash", "triangle", "-k", k, path)
 	read_dist(system(cmd, intern = T))
 }
+
+db <- str_split(Sys.getenv("BLASTDB"), ":", simplify = T) %>% apply(2, list_blastdb) %>% bind_rows()
+
