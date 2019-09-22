@@ -53,11 +53,6 @@ blast <- function(qry, db, out, np = 1)
 	system(cmd)
 }
 
-decode_btop <- function(btop)
-{
-	str_split(btop, "", simplify = T)
-}
-
 blastdbcmd <- function(batch, db, out)
 {
 	cmd <- paste("blastdbcmd", "-db", db, "-entry_batch", "-", "-out", out)

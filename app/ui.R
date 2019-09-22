@@ -18,9 +18,9 @@ fluidPage(
 		tabPanel(
 			"blast",
 			wellPanel(
-				actionButton("run_blast", "run_blast")
+				actionButton("run", "run", width = "100%")
 			),
-			DT::DTOutput("hits_blast")
+			plotOutput("plt.hits", height = "800")
 		)
 	)
 )
