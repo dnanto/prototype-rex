@@ -20,7 +20,7 @@ fluidPage(
 			wellPanel(
 				actionButton("run", "run", width = "100%")
 			),
-			plotOutput("plt.hits", height = "800")
+			plotOutput("plt.hits.1", height = "800")
 		)
 	)
 )

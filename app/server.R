@@ -16,7 +16,7 @@ function(input, output, session) {
 
 	bdb <- eventReactive(input$db, req(input$db))
 
-	hits.1 <- eventReactive(input$run_blast, {
+	hits.1 <- eventReactive(input$run, {
 		req(path <- path_qry(), db <- bdb())
 		out <- file.path(dirname(path), "blast.tsv")
 		blast(path, db, out, np)
