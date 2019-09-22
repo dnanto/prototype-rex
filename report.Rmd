@@ -31,11 +31,16 @@ read_outfmt7 <- function(path)
 
 contextify <- function(df)
 {
-	mutate(
-		df, 
-		start = ifelse(`s. start` > `s. end`, `s. end`, `s. start`) - `query length`, 
-		end = ifelse(`s. start` > `s. end`, `s. start`, `s. end`) + `query length`
-	) %>%
+	group_by(df, `subject acc.ver`) %>% 
+		summarise(
+			`s. start` = min(`s. start`, `s. end`), `s. end` = max(`s. start`, `s. end`), 
+			`query length` = head(`query length`, 1), `subject length` = head(`subject length`, 1)
+		) %>%
+		ungroup() %>%
+		mutate(
+			start = ifelse(`s. start` > `s. end`, `s. end`, `s. start`) - `query length`, 
+			end = ifelse(`s. start` > `s. end`, `s. start`, `s. end`) + `query length`
+		) %>%
 		mutate(
 			start = ifelse(start < 0, 1, start), 
 			end = ifelse(end > `subject length`, `subject length`, end)
@@ -61,7 +66,7 @@ blastdbcmd <- function(batch, db, out)
 
 glsearch <- function(qry, db, out, np = 1)
 {
-	cmd <- paste("glsearch36", "-T", np, "-m", "8C", qry, db, ">", out)
+	cmd <- paste("glsearch36", "-T", np, "-m", "8CB", qry, db, ">", out)
 	system(cmd)
 }
 ```
@@ -102,6 +107,23 @@ call_mut <- function(mut)
 		endsWith(mut, "-") ~ "ins", startsWith(mut, "-") ~ "del"
 	)
 }
+
+plot_hits <- function(hits, snp)
+{
+	ggplot(hits, aes(x = `q. start`, y = `subject acc.ver`)) +
+		geom_segment(aes(xend = `q. end`, yend = `subject acc.ver`, alpha = `% qidentity`), size = 2) +
+		geom_point(data = snp, aes(color = call, shape = call, size = call)) +
+		scale_color_manual(values = c(trv = "magenta", trs = "cyan", ins = "orange", del = "blue")) +
+		scale_shape_manual(values = c(trv = "|", trs = "|", ins = "+", del = "x")) +
+		scale_size_manual(values = c(trv = 4, trs = 4, ins = 8, del = 6)) +
+		facet_wrap(~ `query acc.ver`, nrow = 1, scales = "free_x") +
+		theme_minimal() +
+		theme(
+			legend.position = "bottom",
+			text = element_text(family = "mono"),
+			axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+		)
+}
 ```
 
 ```{r}
@@ -116,9 +138,17 @@ path.ext <- "data/extract.fna"
 
 ```{r}
 blast(path.qry, path.bdb, path.hits.1, np)
-df <- read_outfmt7(path.hits.1) %>% bind_rows() 
+hits.1 <- read_outfmt7(path.hits.1)
+qlen <- bind_rows(lapply(hits.1, head, 1)) %>% select(`query acc.ver`, `query length`)
+```
+
+```{r}
+hits <- 
+	bind_rows(hits.1) %>% 
+	mutate(`% qidentity` = `% identity` * `% query coverage per hsp` / 100)
+
 snp <-
-	apply(df, 1, function(row) {
+	apply(hits, 1, function(row) {
 		val <- decode_btop(row["BTOP"])
 		if (!is_empty(val))
 			bind_rows(val) %>% 
@@ -130,28 +160,12 @@ snp <-
 	}) %>% 
 	bind_rows() %>%
 	mutate(call = call_mut(mut))
-```
 
-```{r, fig.height=14, fig.width=10}
-mutate(df, qcovhspid = `% identity` * `% query coverage per hsp` / 10000) %>%
-	ggplot(aes(x = `q. start`, y = `subject acc.ver`)) +
-	geom_segment(aes(xend = `q. end`, yend = `subject acc.ver`, alpha = qcovhspid), size = 2) +
-	geom_point(data = snp, aes(color = call, shape = call), size = 4) +
-	scale_color_manual(values = c(trv = "magenta", trs = "cyan", ins = "black", del = "black")) +
-	scale_shape_manual(values = c(trv = 124, trs = 124, ins = 6, del = 2)) +
-	facet_wrap(~ `query acc.ver`, nrow = 1, scales = "free_x") +
-	theme_minimal() +
-	theme(
-		legend.position = "bottom",
-		text = element_text(family = "mono"),
-		axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
-	)
+plot_hits(hits, snp)
 ```
 
 ```{r}
-read_outfmt7(path.hits.1) %>%
-	lapply(distinct, `subject acc.ver`, .keep_all = T) %>%
-	lapply(contextify) %>%
+lapply(hits.1, contextify) %>%
 	Reduce(function(...) merge(..., by = "subject acc.ver"), .) %>%
 	mutate(
 		start = apply(.[names(.)[grep("^start", names(.))]], 1, min),
@@ -162,12 +176,42 @@ read_outfmt7(path.hits.1) %>%
 ```
 
 ```{r}
-glsearch(path.qry, path.lib, path.hits.2, np)
+# glsearch(path.qry, path.lib, path.hits.2, np)
+hits.2 <- read_outfmt7(path.hits.2)
 ```
 
 ```{r}
-read_outfmt7(path.hits.2) %>%
-	lapply(select, `subject id`, `s. start`, `s. end`) %>%
+hits <- 
+	bind_rows(hits.2) %>%
+	distinct(`query id`, `subject id`, .keep_all = T) %>%
+	merge(qlen, by.x = "query id", by.y = "query acc.ver") %>%
+	mutate(
+		qstart = ifelse(`q. start` < `q. end`, `q. start`, `q. end`),
+		qend = ifelse(`q. start` < `q. end`, `q. end`, `q. start`)
+	) %>%
+	mutate(`q. start` = qstart, `q. end` = qend) %>%
+	mutate(`% qidentity` = `% identity` * (`q. end` - `q. start` + 1) / `query length`) %>%
+	rename(`query acc.ver` = `query id`, `subject acc.ver` = `subject id`)
+
+snp <-
+	apply(hits, 1, function(row) {
+		val <- decode_btop(row["BTOP"])
+		if (!is_empty(val))
+			bind_rows(val) %>% 
+			mutate(
+				`q. start` = qpos + as.integer(row["q. start"]) - 1, 
+				`query acc.ver` = row["query acc.ver"], 
+				`subject acc.ver` = row["subject acc.ver"]
+			)
+	}) %>% 
+	bind_rows() %>%
+	mutate(call = call_mut(mut))
+
+plot_hits(hits, snp)
+```
+
+```{r}
+lapply(hits.2, select, `subject id`, `s. start`, `s. end`) %>%
 	lapply(distinct, `subject id`, .keep_all = T) %>%
 	Reduce(function(...) merge(..., by = "subject id"), .) %>%
 	mutate(
