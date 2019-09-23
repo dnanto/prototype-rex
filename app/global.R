@@ -81,13 +81,13 @@ blast <- function(qry, db, out, np = 1)
 
 blastdbcmd <- function(batch, db, out)
 {
-	cmd <- paste("blastdbcmd", "-db", db, "-entry_batch", "-", "-out", out)
+	cmd <- paste(Sys.which("blastdbcmd"), "-db", db, "-entry_batch", "-", "-out", out)
 	system(cmd, input = batch)
 }
 
 glsearch <- function(qry, db, out, np = 1)
 {
-	cmd <- paste("glsearch36", "-T", np, "-m", "8CB", qry, db, ">", out)
+	cmd <- paste(Sys.which("glsearch36"), "-T", np, "-m", "8CB", qry, db, ">", out)
 	system(cmd)
 }
 
@@ -170,5 +170,10 @@ mash <- function(path, k = 21)
 }
 
 np <- parallel::detectCores()
-db <- str_split(Sys.getenv("BLASTDB"), ":", simplify = T) %>% apply(2, list_blastdb) %>% bind_rows()
+
+db <-
+	str_split(Sys.getenv("BLASTDB"), ":") %>%
+	flatten_chr() %>%
+	lapply(list_blastdb) %>%
+	bind_rows()
 

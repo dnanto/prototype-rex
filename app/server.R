@@ -41,7 +41,7 @@ function(input, output, session) {
 
 			incProgress(1/4, "glsearch...")
 
-			# glsearch(path, lib, hits.2, np)
+			glsearch(path, lib, hits.2, np)
 
 			incProgress(1/4, "results...")
 
