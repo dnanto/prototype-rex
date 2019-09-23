@@ -16,14 +16,11 @@ datatable <- function(df)
 	)
 }
 
-read_header <- function(path)
+rec_info <- function(path)
 {
-	read_lines(path) %>%
-		.[grep("^>", .)] %>%
-		str_remove("^>") %>%
-		str_split_fixed(" ", 2) %>%
-		as.data.frame() %>%
-		set_names(c("id", "definition"))
+	ape::read.FASTA(path) %>%
+		sapply(length) %>%
+		enframe(value = "length")
 }
 
 list_blastdb <- function(path)

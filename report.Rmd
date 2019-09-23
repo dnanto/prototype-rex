@@ -134,7 +134,6 @@ path.ext <- "data/extract.fna"
 ```{r}
 blast(path.qry, path.bdb, path.hits.1, np)
 hits.1 <- read_outfmt7(path.hits.1)
-qlen <- bind_rows(lapply(hits.1, head, 1)) %>% select(`query acc.ver`, `query length`)
 ```
 
 ```{r}
@@ -179,13 +178,12 @@ hits.2 <- read_outfmt7(path.hits.2)
 hits <- 
 	bind_rows(hits.2) %>%
 	distinct(`query id`, `subject id`, .keep_all = T) %>%
-	merge(qlen, by.x = "query id", by.y = "query acc.ver") %>%
 	mutate(
 		qstart = ifelse(`q. start` < `q. end`, `q. start`, `q. end`),
 		qend = ifelse(`q. start` < `q. end`, `q. end`, `q. start`)
 	) %>%
 	mutate(`q. start` = qstart, `q. end` = qend) %>%
-	mutate(`% qidentity` = `% identity` * (`q. end` - `q. start` + 1) / `query length`) %>%
+	mutate(`% qidentity` = `% identity`) %>%
 	rename(`query acc.ver` = `query id`, `subject acc.ver` = `subject id`)
 
 snp <-
