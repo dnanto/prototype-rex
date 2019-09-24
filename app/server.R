@@ -1,3 +1,4 @@
+
 function(input, output, session) {
 
 	# query
@@ -22,6 +23,7 @@ function(input, output, session) {
 		withProgress({
 			hits.1 <- file.path(dirname(path), "blast.tsv")
 			hits.2 <- file.path(dirname(path), "glsearch.tsv")
+			umap <- file.path(dirname(path), "umap.tsv")
 			lib <- file.path(dirname(path), "library.fna")
 			ext <- file.path(dirname(path), "extract.fna")
 
@@ -29,15 +31,29 @@ function(input, output, session) {
 
 			blast(path, db, hits.1, np)
 
-			read_outfmt7(hits.1) %>%
+			entry <-
+				read_outfmt7(hits.1) %>%
 				lapply(contextify) %>%
 				Reduce(function(...) merge(..., by = "subject acc.ver"), .) %>%
 				mutate(
-					start = apply(.[names(.)[grep("^start", names(.))]], 1, min),
-					end = apply(.[names(.)[grep("^end", names(.))]], 1, max)
-				) %>%
-				with(paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
-				blastdbcmd(db, lib)
+					start = apply(.[names(.)[grep("^start|end", names(.))]], 1, min),
+					end = apply(.[names(.)[grep("^start|end", names(.))]], 1, max)
+				)
+
+			rec <-
+				with(entry, paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
+				blastdbcmd(db, "-", "-outfmt", "'%a    %t    %s'") %>%
+				enframe(name = NULL) %>%
+				separate(value, c("subject acc.ver", "title", "seq"), "    ") %>%
+				mutate(sha1 = sapply(seq, digest::sha1)) %>%
+				merge(entry, by = "subject acc.ver") %>%
+				mutate(accession = paste(`subject acc.ver`, ":", start, "-", end, sep = ""))
+
+			select(rec, accession, sha1) %>% arrange(sha1) %>% write_tsv(umap)
+
+			distinct(rec, sha1, .keep_all = T) %>%
+				apply(1, function(row) paste(">", row["accession"], " ", row["title"], "\n", row["seq"], sep = "")) %>%
+				write_lines(lib)
 
 			incProgress(1/4, "glsearch...")
 
@@ -50,8 +66,8 @@ function(input, output, session) {
 				lapply(distinct, `subject id`, .keep_all = T) %>%
 				Reduce(function(...) merge(..., by = "subject id"), .) %>%
 				mutate(
-					start = apply(.[names(.)[grep("^s. start", names(.))]], 1, min),
-					end = apply(.[names(.)[grep("^s. end", names(.))]], 1, max)
+					start = apply(.[names(.)[grep("start", names(.))]], 1, min),
+					end = apply(.[names(.)[grep("end", names(.))]], 1, max)
 				) %>%
 				separate(`subject id`, c("subject acc.ver", "start.1", "end.1"), sep = "[-: ]", convert = T) %>%
 				mutate(offset = start.1 - start) %>%
@@ -77,10 +93,6 @@ function(input, output, session) {
 				}) %>%
 				bind_rows() %>%
 				mutate(call = call_mut(mut))
-
-			output$plt.hits.1 <- renderPlot(plot_hits(hits1, snps1))
-			output$tbl.hits.1 <- DT::renderDT(datatable(hits1))
-			output$tbl.snps.1 <- DT::renderDT(datatable(snps1))
 
 			hits2 <-
 				read_outfmt7(hits.2) %>%
@@ -108,10 +120,12 @@ function(input, output, session) {
 				bind_rows() %>%
 				mutate(call = call_mut(mut))
 
+			output$plt.hits.1 <- renderPlot(plot_hits(hits1, snps1))
+			output$tbl.hits.1 <- DT::renderDT(datatable(hits1))
+			output$tbl.snps.1 <- DT::renderDT(datatable(snps1))
 			output$plt.hits.2 <- renderPlot(plot_hits(hits2, snps2))
 			output$tbl.hits.2 <- DT::renderDT(datatable(hits2))
 			output$tbl.snps.2 <- DT::renderDT(datatable(snps2))
-
 			output$extract <- DT::renderDT(datatable(rec_info(ext)))
 
 			incProgress(1/4, "complete!")

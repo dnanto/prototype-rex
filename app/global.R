@@ -79,10 +79,10 @@ blast <- function(qry, db, out, np = 1)
 	system(cmd)
 }
 
-blastdbcmd <- function(batch, db, out)
+blastdbcmd <- function(batch, db, out = "-", ...)
 {
-	cmd <- paste(Sys.which("blastdbcmd"), "-db", db, "-entry_batch", "-", "-out", out)
-	system(cmd, input = batch)
+	cmd <- paste(Sys.which("blastdbcmd"), "-db", db, "-entry_batch", "-", "-out", out, ...)
+	system(cmd, input = batch, intern = out == "-")
 }
 
 glsearch <- function(qry, db, out, np = 1)
