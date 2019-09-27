@@ -24,7 +24,7 @@ navbarPage(
 				tabsetPanel(
 					tabPanel("hits", DT::DTOutput("tbl.hits.1")),
 					tabPanel("snp", DT::DTOutput("tbl.snps.1")),
-					tabPanel("plot", plotOutput("plt.hits.1", height = 600))
+					tabPanel("plot", plotOutput("plt.hits.1", height = 1000))
 				)
 			),
 			tabPanel(
@@ -32,7 +32,7 @@ navbarPage(
 				tabsetPanel(
 					tabPanel("hits", DT::DTOutput("tbl.hits.2")),
 					tabPanel("snp", DT::DTOutput("tbl.snps.2")),
-					tabPanel("plot", plotOutput("plt.hits.2", height = 600))
+					tabPanel("plot", plotOutput("plt.hits.2", height = 1000))
 				)
 			),
 			tabPanel(

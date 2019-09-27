@@ -49,8 +49,6 @@ function(input, output, session) {
 				merge(entry, by = "subject acc.ver") %>%
 				mutate(accession = paste(`subject acc.ver`, ":", start, "-", end, sep = ""))
 
-			select(rec, accession, sha1) %>% arrange(sha1) %>% write_tsv(umap)
-
 			distinct(rec, sha1, .keep_all = T) %>%
 				apply(1, function(row) paste(">", row["accession"], " ", row["title"], "\n", row["seq"], sep = "")) %>%
 				write_lines(lib)
@@ -61,7 +59,8 @@ function(input, output, session) {
 
 			incProgress(1/4, "results...")
 
-			read_outfmt7(hits.2) %>%
+			entry <-
+				read_outfmt7(hits.2) %>%
 				lapply(select, `subject id`, `s. start`, `s. end`) %>%
 				lapply(distinct, `subject id`, .keep_all = T) %>%
 				Reduce(function(...) merge(..., by = "subject id"), .) %>%
@@ -71,9 +70,26 @@ function(input, output, session) {
 				) %>%
 				separate(`subject id`, c("subject acc.ver", "start.1", "end.1"), sep = "[-: ]", convert = T) %>%
 				mutate(offset = start.1 - start) %>%
-				mutate(start = start + offset, end = end + offset) %>%
-				with(paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
-				blastdbcmd(db, ext)
+				mutate(start = start + offset, end = end + offset)
+
+			rec <-
+				with(entry, paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
+				blastdbcmd(db, "-", "-outfmt", "'%a    %t    %s'") %>%
+				enframe(name = NULL) %>%
+				separate(value, c("subject acc.ver", "title", "seq"), "    ") %>%
+				mutate(sha1 = sapply(seq, digest::sha1)) %>%
+				merge(entry, by = "subject acc.ver") %>%
+				mutate(accession = paste(`subject acc.ver`, ":", start, "-", end, sep = ""))
+
+			dfu <-
+				select(rec, accession, sha1) %>%
+				dplyr::add_count(sha1) %>%
+				arrange(desc(n)) %>%
+				write_tsv(umap)
+
+			distinct(rec, sha1, .keep_all = T) %>%
+				apply(1, function(row) paste(">", row["accession"], " ", row["title"], "\n", row["seq"], sep = "")) %>%
+				write_lines(ext)
 
 			hits1 <-
 				read_outfmt7(hits.1) %>%
@@ -126,7 +142,7 @@ function(input, output, session) {
 			output$plt.hits.2 <- renderPlot(plot_hits(hits2, snps2))
 			output$tbl.hits.2 <- DT::renderDT(datatable(hits2))
 			output$tbl.snps.2 <- DT::renderDT(datatable(snps2))
-			output$extract <- DT::renderDT(datatable(rec_info(ext)))
+			output$extract <- DT::renderDT(datatable(dfu))
 
 			incProgress(1/4, "complete!")
 		})
