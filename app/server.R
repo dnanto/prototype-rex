@@ -1,4 +1,3 @@
-
 function(input, output, session) {
 
 	# query
@@ -23,7 +22,6 @@ function(input, output, session) {
 		withProgress({
 			hits.1 <- file.path(dirname(path), "blast.tsv")
 			hits.2 <- file.path(dirname(path), "glsearch.tsv")
-			umap <- file.path(dirname(path), "umap.tsv")
 			lib <- file.path(dirname(path), "library.fna")
 			ext <- file.path(dirname(path), "extract.fna")
 
@@ -40,16 +38,12 @@ function(input, output, session) {
 					end = apply(.[names(.)[grep("^start|end", names(.))]], 1, max)
 				)
 
-			rec <-
-				with(entry, paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
+			with(entry, paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
 				blastdbcmd(db, "-", "-outfmt", "'%a    %t    %s'") %>%
 				enframe(name = NULL) %>%
 				separate(value, c("subject acc.ver", "title", "seq"), "    ") %>%
-				mutate(sha1 = sapply(seq, digest::sha1)) %>%
 				merge(entry, by = "subject acc.ver") %>%
-				mutate(accession = paste(`subject acc.ver`, ":", start, "-", end, sep = ""))
-
-			distinct(rec, sha1, .keep_all = T) %>%
+				mutate(accession = paste(`subject acc.ver`, ":", start, "-", end, sep = "")) %>%
 				apply(1, function(row) paste(">", row["accession"], " ", row["title"], "\n", row["seq"], sep = "")) %>%
 				write_lines(lib)
 
@@ -76,19 +70,14 @@ function(input, output, session) {
 				with(entry, paste(`subject acc.ver`, " ", start, "-", end, sep = "")) %>%
 				blastdbcmd(db, "-", "-outfmt", "'%a    %t    %s'") %>%
 				enframe(name = NULL) %>%
-				separate(value, c("subject acc.ver", "title", "seq"), "    ") %>%
-				mutate(sha1 = sapply(seq, digest::sha1)) %>%
+				separate(value, c("subject acc.ver", "title", "seq"), "    ", convert = T) %>%
 				merge(entry, by = "subject acc.ver") %>%
-				mutate(accession = paste(`subject acc.ver`, ":", start, "-", end, sep = ""))
+				mutate(
+					accession = paste(`subject acc.ver`, " ", start, "-", end, sep = ""),
+					length = end - start + 1
+				)
 
-			dfu <-
-				select(rec, accession, sha1) %>%
-				dplyr::add_count(sha1) %>%
-				arrange(desc(n)) %>%
-				write_tsv(umap)
-
-			distinct(rec, sha1, .keep_all = T) %>%
-				apply(1, function(row) paste(">", row["accession"], " ", row["title"], "\n", row["seq"], sep = "")) %>%
+			apply(rec, 1, function(row) paste(">", row["accession"], " ", row["title"], "\n", row["seq"], sep = "")) %>%
 				write_lines(ext)
 
 			hits1 <-
@@ -118,9 +107,13 @@ function(input, output, session) {
 					qstart = ifelse(`q. start` < `q. end`, `q. start`, `q. end`),
 					qend = ifelse(`q. start` < `q. end`, `q. end`, `q. start`)
 				) %>%
-				mutate(`q. start` = qstart, `q. end` = qend) %>%
-				mutate(`% qidentity` = `% identity`) %>%
-				rename(`query acc.ver` = `query id`, `subject acc.ver` = `subject id`)
+				mutate(
+					`q. start` = qstart,
+					`q. end` = qend,
+					`% qidentity` = `% identity`,
+					`query acc.ver` = `query id`,
+					`subject acc.ver` = `subject id`
+				)
 
 			snps2 <-
 				apply(hits2, 1, function(row) {
@@ -142,7 +135,7 @@ function(input, output, session) {
 			output$plt.hits.2 <- renderPlot(plot_hits(hits2, snps2))
 			output$tbl.hits.2 <- DT::renderDT(datatable(hits2))
 			output$tbl.snps.2 <- DT::renderDT(datatable(snps2))
-			output$extract <- DT::renderDT(datatable(dfu))
+			output$extract <- DT::renderDT(datatable(select(rec, `subject acc.ver`, start, end, title, length)))
 
 			incProgress(1/4, "complete!")
 		})

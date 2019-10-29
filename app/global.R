@@ -3,7 +3,9 @@ library(shinyFiles)
 library(shinycssloaders)
 library(tidyverse)
 
-roots <- c(home = "../data")
+roots <- c(home = "~")
+
+np <- parallel::detectCores()
 
 datatable <- function(df)
 {
@@ -32,10 +34,9 @@ list_blastdb <- function(path)
 
 parse_outfmt7 <- function(lines)
 {
-	fields <-
-		str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3)[3] %>%
-		str_split(", ", simplify = T)
-	read_tsv(lines, comment = "#", col_names = fields)
+	str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3)[3] %>%
+		str_split(", ", simplify = T) %>%
+		read_tsv(lines, comment = "#", col_names = .)
 }
 
 read_outfmt7 <- function(path)
@@ -169,11 +170,4 @@ mash <- function(path, k = 21)
 	read_dist(system(cmd, intern = T))
 }
 
-np <- parallel::detectCores()
-
-db <-
-	str_split(Sys.getenv("BLASTDB"), ":") %>%
-	flatten_chr() %>%
-	lapply(list_blastdb) %>%
-	bind_rows()
-
+db <- flatten_chr(str_split(Sys.getenv("BLASTDB"), ":")) %>% lapply(list_blastdb) %>% bind_rows()
