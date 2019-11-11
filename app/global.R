@@ -2,8 +2,10 @@ library(shiny)
 library(shinyFiles)
 library(shinycssloaders)
 library(tidyverse)
+library(ggtree)
+library(BactDating)
 
-roots <- c(home = "~")
+roots <- c(home = "..")
 
 np <- parallel::detectCores()
 
@@ -20,9 +22,7 @@ datatable <- function(df)
 
 rec_info <- function(path)
 {
-	ape::read.FASTA(path) %>%
-		sapply(length) %>%
-		enframe(value = "length")
+	enframe(sapply(ape::read.FASTA(path), length), value = "length")
 }
 
 list_blastdb <- function(path)
@@ -34,18 +34,16 @@ list_blastdb <- function(path)
 
 parse_outfmt7 <- function(lines)
 {
-	str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3)[3] %>%
-		str_split(", ", simplify = T) %>%
+	str_split(str_split_fixed(lines[grep("^# Fields: ", lines)], " ", 3)[3], ", ", simplify = T) %>%
 		read_tsv(lines, comment = "#", col_names = .)
 }
 
 read_outfmt7 <- function(path)
 {
-	lines <- read_lines(path) %>% head(-1)
-	enc <- startsWith(lines, "#") %>% rle()
+	lines <- head(read_lines(path), -1)
+	enc <- rle(startsWith(lines, "#"))
 	enc$values <- ceiling(seq_along(enc$values) / 2)
-	split(lines, inverse.rle(enc)) %>%
-		lapply(parse_outfmt7)
+	lapply(split(lines, inverse.rle(enc)), parse_outfmt7)
 }
 
 contextify <- function(df)
@@ -145,15 +143,10 @@ plot_hits <- function(hits, snp)
 		)
 }
 
-read_dist <- function(path)
+mafft <- function(path, out, log, np = 1)
 {
-	lines <- read_lines(path)
-	n <- as.integer(lines[1])
-	str_split_fixed(tail(lines, -1), "\t", n) %>%
-		as_tibble() %>%
-		column_to_rownames("V1") %>%
-		add_column(" ") %>%
-		set_names(rownames(.))
+	cmd <- paste(Sys.which("mafft"), "--auto", "--adjustdirection", "--thread", np, path, ">", out, "2>", log)
+	system(cmd)
 }
 
 NbClust <- function(...)
@@ -164,10 +157,7 @@ NbClust <- function(...)
 	result
 }
 
-mash <- function(path, k = 21)
-{
-	cmd <- paste("mash", "triangle", "-k", k, path)
-	read_dist(system(cmd, intern = T))
-}
+db <- bind_rows(lapply(str_split(Sys.getenv("BLASTDB"), ":"), list_blastdb))
 
-db <- flatten_chr(str_split(Sys.getenv("BLASTDB"), ":")) %>% lapply(list_blastdb) %>% bind_rows()
+Sys.setenv(PYTHONPATH = "..")
+
